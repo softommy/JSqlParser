@@ -147,6 +147,11 @@ public class AlterTest {
     }
 
     @Test
+    public void testAlterTableDropConstraintIfExists() throws JSQLParserException {
+        assertSqlCanBeParsedAndDeparsed("ALTER TABLE Persons DROP CONSTRAINT IF EXISTS UC_Person");
+    }
+
+    @Test
     public void testAlterTablePK() throws JSQLParserException {
         final String sql = "ALTER TABLE `Author` ADD CONSTRAINT `AuthorPK` PRIMARY KEY (`ID`)";
         Statement stmt = CCJSqlParserUtil.parse(sql);
@@ -244,6 +249,12 @@ public class AlterTest {
 
         assertEquals(AlterOperation.MODIFY, ((Alter) stmt).getAlterExpressions().get(0).
                 getOperation());
+    }
+    
+    @Test
+    public void testAlterTableAlterColumn() throws JSQLParserException {
+      // http://www.postgresqltutorial.com/postgresql-change-column-type/
+      assertSqlCanBeParsedAndDeparsed("ALTER TABLE table_name ALTER COLUMN column_name_1 TYPE TIMESTAMP, ALTER COLUMN column_name_2 TYPE BOOLEAN");
     }
 
     @Test

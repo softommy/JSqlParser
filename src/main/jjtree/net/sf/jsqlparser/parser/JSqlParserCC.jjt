@@ -70,6 +70,7 @@ import net.sf.jsqlparser.expression.operators.relational.*;
 import net.sf.jsqlparser.schema.*;
 import net.sf.jsqlparser.statement.*;
 import net.sf.jsqlparser.statement.alter.*;
+import net.sf.jsqlparser.statement.comment.*;
 import net.sf.jsqlparser.statement.create.index.*;
 import net.sf.jsqlparser.statement.create.table.*;
 import net.sf.jsqlparser.statement.create.view.*;
@@ -149,6 +150,7 @@ TOKEN: /* SQL Keywords. prefixed with K_ to avoid name clashes */
 |   <K_BETWEEN:"BETWEEN">
 |   <K_BINARY: "BINARY">  
 |   <K_BIT:"BIT">
+|   <K_BOTH:"BOTH">
 |   <K_BY:"BY">
 |   <K_BYTE: "BYTE">
 |   <K_CALL : "CALL">
@@ -160,6 +162,7 @@ TOKEN: /* SQL Keywords. prefixed with K_ to avoid name clashes */
 |   <K_CHAR:"CHAR">
 |   <K_COLUMN:"COLUMN">
 |   <K_COMMIT:"COMMIT">
+|   <K_COMMENT:"COMMENT">
 |   <K_CONNECT:"CONNECT">
 |   <K_CONSTRAINT:"CONSTRAINT">
 |   <K_CREATE:"CREATE">
@@ -216,6 +219,7 @@ TOKEN: /* SQL Keywords. prefixed with K_ to avoid name clashes */
 |   <K_KEY:"KEY">
 |   <K_LAST: "LAST">
 |   <K_LATERAL:"LATERAL">
+|   <K_LEADING:"LEADING">
 |   <K_LEFT:"LEFT">
 |   <K_LIKE:"LIKE">
 |   <K_LIMIT:"LIMIT">
@@ -245,6 +249,7 @@ TOKEN: /* SQL Keywords. prefixed with K_ to avoid name clashes */
 |   <K_PARTITION:"PARTITION">
 |   <K_PERCENT:"PERCENT">
 |   <K_PIVOT:"PIVOT">
+|   <K_PLACING:"PLACING">
 |   <K_PRECEDING: "PRECEDING">
 |   <K_PRECISION : "PRECISION">
 |   <K_PRIMARY:"PRIMARY">
@@ -275,7 +280,9 @@ TOKEN: /* SQL Keywords. prefixed with K_ to avoid name clashes */
 |   <K_TEMPORARY:"TEMPORARY">
 |   <K_TIME_KEY_EXPR : ( "CURRENT_TIMESTAMP" | "CURRENT_TIME" | "CURRENT_DATE" ) ( "()" )?>
 |   <K_TOP:"TOP">
+|   <K_TRAILING:"TRAILING">
 |   <K_TRUNCATE:"TRUNCATE">
+|   <K_TYPE:"TYPE">
 |   <K_UNBOUNDED: "UNBOUNDED"> 
 |   <K_UNION:"UNION">
 |   <K_UNIQUE:"UNIQUE">
@@ -390,6 +397,7 @@ Statement SingleStatement() :
         |
         stm = Delete()
         |
+		LOOKAHEAD(2)
         stm = Replace()
         |
         LOOKAHEAD(2)
@@ -419,6 +427,8 @@ Statement SingleStatement() :
         stm = Use()
         |
         stm = Commit() 
+        |
+        stm = Comment() 
         )
 		{ return stm; }
     } catch (ParseException e) {
@@ -610,7 +620,7 @@ Replace Replace():
     Expression exp = null;
 }
 {
-    <K_REPLACE> [<K_INTO> { replace.setUseIntoTables(true); }] table=Table()
+    ( <K_REPLACE> [LOOKAHEAD(2) <K_INTO> { replace.setUseIntoTables(true); }] table=Table() )
 
     (
         (
@@ -1030,8 +1040,8 @@ Not all names should be allowed for aliases.
 String RelObjectNameWithoutValue() : 
 {    Token tk = null; }
 {
-    (tk=<S_IDENTIFIER> | tk=<S_QUOTED_IDENTIFIER> | tk=<K_BYTE> | <K_CHAR>
-      | tk=<K_CAST> | tk=<K_DO> | tk=<K_EXTRACT> | tk=<K_FIRST> | tk=<K_FOLLOWING> 
+    (tk=<S_IDENTIFIER> | tk=<S_QUOTED_IDENTIFIER> | tk=<K_BYTE> | tk=<K_CHAR>
+      | tk=<K_CAST> | tk=<K_COMMENT> | tk=<K_DO> | tk=<K_EXTRACT> | tk=<K_FIRST> | tk=<K_FOLLOWING> 
       | tk=<K_LAST> | tk=<K_MATERIALIZED> | tk=<K_NULLS> | tk=<K_PARTITION> | tk=<K_RANGE> 
       | tk=<K_ROW> | tk=<K_ROWS> | tk=<K_SIBLINGS> | tk=<K_XML>
       | tk=<K_COLUMN> | tk=<K_REPLACE> | tk=<K_TRUNCATE> | tk=<K_KEY> | tk=<K_ANY>
@@ -1040,8 +1050,9 @@ String RelObjectNameWithoutValue() :
       | tk=<K_TABLE> | tk=<K_DATETIMELITERAL> | tk=<K_COMMIT> | tk=<K_PRECISION>
       | tk=<K_INSERT> | tk=<K_INDEX> | tk=<K_PRIMARY> | tk=<K_ENABLE>
 	  | tk=<K_UNSIGNED>
-      | tk=<K_TEMP> | tk=<K_TEMPORARY> | tk=<K_ISNULL> 
+      | tk=<K_TEMP> | tk=<K_TEMPORARY> | tk=<K_TYPE> | tk=<K_ISNULL> 
 	  | tk=<K_ZONE>
+/*      | tk=<K_PLACING> | tk=<K_BOTH> | tk=<K_LEADING> | tk=<K_TRAILING> */
       )
 
     { return tk.image; }
@@ -1695,6 +1706,7 @@ Join JoinerExpression() #JoinerExpression:
     Expression onExpression = null;
     Column tableColumn;
     List<Column> columns = null;
+    KSQLJoinWindow joinWindow = null;
 }
 {
     [
@@ -1713,7 +1725,8 @@ Join JoinerExpression() #JoinerExpression:
 
 
     [ 
-    LOOKAHEAD(2) (( <K_ON> onExpression=Expression()  { join.setOnExpression(onExpression); } )
+    LOOKAHEAD(2) ([ <K_WITHIN> "(" joinWindow = JoinWindow() ")" {join.setJoinWindow(joinWindow);}]
+                    ( <K_ON> onExpression=Expression()  { join.setOnExpression(onExpression); })
         |
         ( <K_USING> "(" tableColumn=Column() { columns = new ArrayList(); columns.add(tableColumn); }
                 ("," tableColumn=Column() { columns.add(tableColumn); } )* ")"
@@ -1724,6 +1737,35 @@ Join JoinerExpression() #JoinerExpression:
       join.setRightItem(right);
     return join; 
   }
+
+}
+
+KSQLJoinWindow JoinWindow():
+{
+    KSQLJoinWindow retval = new KSQLJoinWindow();
+    boolean beforeAfter;
+    Token beforeDurationToken = null;
+    Token beforeTimeUnitToken = null;
+    Token afterDurationToken = null;
+    Token afterTimeUnitToken = null;
+}
+{
+    (beforeDurationToken=<S_LONG> beforeTimeUnitToken=<S_IDENTIFIER>
+        [ "," afterDurationToken=<S_LONG> afterTimeUnitToken=<S_IDENTIFIER> ]
+    {
+        if (afterDurationToken == null) {
+            retval.setDuration(Long.parseLong(beforeDurationToken.image));
+            retval.setTimeUnit(KSQLJoinWindow.TimeUnit.valueOf(beforeTimeUnitToken.image));
+            retval.setBeforeAfterWindow(false);
+            return retval;
+        }
+        retval.setBeforeDuration(Long.parseLong(beforeDurationToken.image));
+        retval.setBeforeTimeUnit(KSQLJoinWindow.TimeUnit.valueOf(beforeTimeUnitToken.image));
+        retval.setAfterDuration(Long.parseLong(afterDurationToken.image));
+        retval.setAfterTimeUnit(KSQLJoinWindow.TimeUnit.valueOf(afterTimeUnitToken.image));
+        retval.setBeforeAfterWindow(true);
+        return retval;
+    })
 }
 
 Expression WhereClause():
@@ -2328,6 +2370,83 @@ ExpressionList SimpleExpressionList():
         return retval;
     }
 }
+
+// trim( [leading|trailing|both] expr from expr)
+// The [leading|trailing|both] token has already been consumed
+NamedExpressionList NamedExpressionList1():
+{
+    NamedExpressionList retval = new NamedExpressionList();
+    List<Expression> expressions = new ArrayList<Expression>();
+    List<String> names = new ArrayList<String>();
+    Expression expr1 = null;
+    Expression expr2 = null;
+	String name = "";
+    Token tk1 = null;
+    Token tk2 = null;
+}
+{
+    ( 
+		(tk1=<K_BOTH>|tk1=<K_LEADING>|tk1=<K_TRAILING>) { names.add(tk1.image); }
+		expr1=SimpleExpression()  
+		(tk2=<K_FROM>|tk2=<K_IN>|tk2=<K_PLACING>) 
+		expr2=SimpleExpression() 
+		{ expressions.add(expr1); names.add(tk2.image); expressions.add(expr2);}
+    )
+
+    {
+        retval.setNames(names);
+        retval.setExpressions(expressions);
+        return retval;
+    }
+}
+
+// substring(expr1 from expr2)
+// substring(expr1 from expr2 for expr3)
+// trim(expr1 from expr2)
+// position(expr1 in expr2)
+// overlay(expr1 placing expr2 from expr3)
+// overlay(expr1 placing expr2 from expr3 for expr4)
+// expr1 has already been consumed
+NamedExpressionList NamedExpressionListExprFirst():
+{
+    NamedExpressionList retval = new NamedExpressionList();
+    List<Expression> expressions = new ArrayList<Expression>();
+    List<String> names = new ArrayList<String>();
+    Expression expr1 = null;
+    Expression expr2 = null;
+    Expression expr3 = null;
+    Expression expr4 = null;
+    Token tk2 = null;
+    Token tk3 = null;
+    Token tk4 = null;
+}
+{
+	expr1=SimpleExpression() 
+	(tk2=<K_FROM>|tk2=<K_IN>|tk2=<K_PLACING>) 
+	{
+		names.add("");
+		expressions.add(expr1);
+		names.add(tk2.image);
+	}
+    ( 
+        expr2=SimpleExpression() { expressions.add(expr2);}
+		( 
+			(tk3=<K_FOR>|tk3=<K_FROM>) 
+			expr3=SimpleExpression() {names.add(tk3.image); expressions.add(expr3);} 
+			(	
+				(tk4=<K_FOR>) 
+				expr4=SimpleExpression() {names.add(tk4.image); expressions.add(expr4);} 
+			)?
+		)?
+    )
+
+    {
+        retval.setNames(names);
+        retval.setExpressions(expressions);
+        return retval;
+    }
+}
+
 
 ExpressionList SimpleExpressionListAtLeastTwoItems():
 {
@@ -2939,9 +3058,14 @@ Function Function() #Function:
     Function retval = new Function();
     String funcName = null;
     String tmp = null;
+    List<Expression> expressions = new ArrayList<Expression>();
     ExpressionList expressionList = null;
+    NamedExpressionList namedExpressionList = null;
     KeepExpression keep = null;
     SubSelect expr = null;
+    Token tk1 = null;
+    Token tk2 = null;
+    Expression expr1 = null;
 }
 {
     ["{fn" { retval.setEscaped(true); } ]
@@ -2949,8 +3073,19 @@ Function Function() #Function:
     funcName=RelObjectNameExt()
 
     [ "." tmp=RelObjectNameExt() { funcName+= "." + tmp; } ["." tmp=RelObjectNameExt() { funcName+= "." + tmp; }]]
-    "(" [ [<K_DISTINCT> { retval.setDistinct(true); } | <K_ALL> { retval.setAllColumns(true); }] (LOOKAHEAD(3) expressionList=SimpleExpressionList() | "*" { retval.setAllColumns(true); }
-        | expr = SubSelect() { expr.setUseBrackets(false); expressionList = new ExpressionList(expr); } ) ] ")"
+    "(" [ [<K_DISTINCT> { retval.setDistinct(true); } | <K_ALL> { retval.setAllColumns(true); }]
+        ( LOOKAHEAD(4)
+			namedExpressionList=NamedExpressionList1()
+			| 
+			LOOKAHEAD(NamedExpressionListExprFirst()) namedExpressionList = NamedExpressionListExprFirst()
+			|
+			LOOKAHEAD(3) expressionList=SimpleExpressionList()
+			| 
+			"*" { retval.setAllColumns(true); }
+			|  
+			expr = SubSelect() { expr.setUseBrackets(false); expressionList = new ExpressionList(expr); } 
+        )] 
+	")"
 
     [ "." tmp=RelObjectName() { retval.setAttribute(tmp); }]
 
@@ -2959,6 +3094,7 @@ Function Function() #Function:
     ["}"]
     {
         retval.setParameters(expressionList);
+        retval.setNamedParameters(namedExpressionList);
         retval.setName(funcName);
         retval.setKeep(keep);
         linkAST(retval,jjtThis);
@@ -3342,7 +3478,7 @@ AlterView AlterView():
     List<String> columnNames = null;
 }
 {
-    <K_ALTER>
+    ( (<K_ALTER> ) | (<K_REPLACE> {alterView.setUseReplace(true);}) )
     <K_VIEW> view=Table() { alterView.setView(view); }
     [ columnNames = ColumnsNamesList() { alterView.setColumnNames(columnNames); } ]
     <K_AS>
@@ -3432,6 +3568,8 @@ List<String> CreateParameter():
             tk=<K_BY> { param.add(tk.image); }
 			|
             tk=<K_IN> { param.add(tk.image); }
+			|
+            tk=<K_TYPE> { param.add(tk.image); }
         )
     {return param;}
 }
@@ -3461,7 +3599,7 @@ String ColumnsNamesListItem():
     String item = null;
 } 
 {
-	(tk=<S_IDENTIFIER> | tk=<S_QUOTED_IDENTIFIER>) { item = tk.image; }
+	( item = RelObjectName() )
 	[ "(" tk = <S_LONG>  ")" { item = item + "(" + tk.image + ")"; } ]
 	{
 		return item;
@@ -3533,16 +3671,18 @@ Truncate Truncate():
 AlterExpression.ColumnDataType AlterExpressionColumnDataType():
 {
     String columnName = null;
+    boolean withType = false;
     ColDataType dataType = null;
     List<String> columnSpecs = null;
     List<String> parameter = null;
 }
 {
     columnName = RelObjectName()
+    (<K_TYPE> { withType = true; } )?
     dataType = ColDataType() { columnSpecs = new ArrayList(); }
     ( parameter = CreateParameter() { columnSpecs.addAll(parameter); } )*
     {
-        return new AlterExpression.ColumnDataType(columnName, dataType, columnSpecs);
+        return new AlterExpression.ColumnDataType(columnName, withType, dataType, columnSpecs);
     }
 }
 
@@ -3600,7 +3740,7 @@ AlterExpression AlterExpression():
 {
 
     (
-    ((<K_ADD>    { alterExp.setOperation(AlterOperation.ADD); } | <K_MODIFY> { alterExp.setOperation(AlterOperation.MODIFY); })
+    ((<K_ADD>    { alterExp.setOperation(AlterOperation.ADD); } | <K_ALTER>    { alterExp.setOperation(AlterOperation.ALTER); } | <K_MODIFY> { alterExp.setOperation(AlterOperation.MODIFY); })
       (
 		LOOKAHEAD(2) ( <K_PRIMARY> <K_KEY> columnNames=ColumnsNamesList() { alterExp.setPkColumns(columnNames); } ) constraints=AlterExpressionConstraintState() { alterExp.setConstraints(constraints); }
 		|
@@ -3724,7 +3864,7 @@ AlterExpression AlterExpression():
                   
              )
              |
-       (  <K_CONSTRAINT>
+       (  <K_CONSTRAINT> [<K_IF> <K_EXISTS> { alterExp.setConstraintIfExists(true); } ]
        (tk=<S_IDENTIFIER>    | tk=<S_QUOTED_IDENTIFIER>)
            {
               alterExp.setConstraintName(tk.image);
@@ -3782,4 +3922,28 @@ Commit Commit():
   {
     return commit;
   }
+}
+
+Comment Comment():
+{
+    Comment result = new Comment();
+    Table table;
+    Column column;
+    Token comment;
+}
+{
+    <K_COMMENT> <K_ON>
+    (
+        (
+            <K_TABLE> table = Table() { result.setTable(table); }
+        )
+        |
+        (
+            <K_COLUMN> column = Column() { result.setColumn(column); }
+        )
+    )
+    <K_IS> comment=<S_CHAR_LITERAL> { result.setComment(new StringValue(comment.image)); }
+    {
+        return result;
+    }
 }

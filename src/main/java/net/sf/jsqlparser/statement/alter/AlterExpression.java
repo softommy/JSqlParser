@@ -47,6 +47,7 @@ public class AlterExpression {
     private String ukName;
     private Index index = null;
     private String constraintName;
+    private boolean constraintIfExists;
     private boolean onDeleteRestrict;
     private boolean onDeleteSetNull;
     private boolean onDeleteCascade;
@@ -110,7 +111,7 @@ public class AlterExpression {
     }
 
     public void addColDataType(String columnName, ColDataType colDataType) {
-        addColDataType(new ColumnDataType(columnName, colDataType, null));
+        addColDataType(new ColumnDataType(columnName, false, colDataType, null));
     }
 
     public void addColDataType(ColumnDataType columnDataType) {
@@ -142,6 +143,14 @@ public class AlterExpression {
 
     public void setConstraintName(final String constraintName) {
         this.constraintName = constraintName;
+    }
+    
+    public boolean isConstraintIfExists() {
+        return constraintIfExists;
+    }
+    
+    public void setConstraintIfExists( boolean constraintIfExists ) {
+        this.constraintIfExists = constraintIfExists;
     }
 
     public List<String> getPkColumns() {
@@ -215,7 +224,11 @@ public class AlterExpression {
                 b.append(")");
             }
         } else if (constraintName != null) {
-            b.append("CONSTRAINT ").append(constraintName);
+            b.append("CONSTRAINT ");
+            if(constraintIfExists) {
+               b.append("IF EXISTS ");
+            }
+            b.append(constraintName);
         } else if (pkColumns != null) {
             b.append("PRIMARY KEY (").append(PlainSelect.getStringList(pkColumns)).append(')');
         } else if (ukColumns != null) {
@@ -248,11 +261,13 @@ public class AlterExpression {
     public static class ColumnDataType {
 
         private final String columnName;
+        private final boolean withType;
         private final ColDataType colDataType;
         private final List<String> columnSpecs;
 
-        public ColumnDataType(String columnName, ColDataType colDataType, List<String> columnSpecs) {
+        public ColumnDataType(String columnName, boolean withType, ColDataType colDataType, List<String> columnSpecs) {
             this.columnName = columnName;
+            this.withType = withType;
             this.colDataType = colDataType;
             this.columnSpecs = columnSpecs;
         }
@@ -274,7 +289,7 @@ public class AlterExpression {
 
         @Override
         public String toString() {
-            return columnName + " " + colDataType + parametersToString();
+            return columnName + ( withType ? " TYPE " : " " ) + colDataType + parametersToString();
         }
 
         private String parametersToString() {

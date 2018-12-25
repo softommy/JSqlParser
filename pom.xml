@@ -428,6 +428,7 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven_deploy_skip>true</maven_deploy_skip>
     </properties>
 
     <description>JSqlParser parses an SQL statement and translate it into a hierarchy of Java classes.
